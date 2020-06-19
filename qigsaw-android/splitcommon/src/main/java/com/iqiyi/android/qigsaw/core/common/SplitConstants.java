@@ -24,22 +24,22 @@
 
 package com.iqiyi.android.qigsaw.core.common;
 
-import android.support.annotation.RestrictTo;
+import androidx.annotation.RestrictTo;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 @RestrictTo(LIBRARY_GROUP)
 public class SplitConstants {
 
     public static final String QIGSAW = "qigsaw";
 
+    public static final String MASTER = "master";
+
     public static final int MAX_RETRY_ATTEMPTS = 3;
 
     public static final String QIGSAW_PREFIX = "qigsaw_";
 
     public static final String DOT_APK = ".apk";
-
-    public static final String DOT_ODEX = ".odex";
 
     public static final String DOT_DEX = ".dex";
 
@@ -55,14 +55,19 @@ public class SplitConstants {
 
     public static final String KET_NAME = "splitName";
 
-    public static final String KET_SPLIT_DIR = "splitDir";
-
     public static final String KEY_APK = "apk";
 
-    public static final String KEY_OPTIMIZED_DIRECTORY = "optimized-directory";
+    public static final String KEY_ADDED_DEX = "added-dex";
 
-    public static final String KEY_MULTI_DEX = "multi-dex";
+    public static final String KEY_NATIVE_LIB_DIR = "native-lib-dir";
 
-    public static final String KEY_NATIVE_LIBRARIES = "native-libraries";
+    public static final String KEY_DEX_OPT_DIR = "dex-opt-dir";
+
+    public static final String URL_ASSETS = "assets://";
+
+    public static final String URL_NATIVE = "native://";
+
+    public static final String SPLIT_PREFIX = "split_";
+
 
 }

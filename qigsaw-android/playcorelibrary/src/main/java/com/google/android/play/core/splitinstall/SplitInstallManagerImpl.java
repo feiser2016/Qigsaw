@@ -1,15 +1,18 @@
 package com.google.android.play.core.splitinstall;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.IntentSender;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.util.Log;
 
+import com.google.android.play.core.splitinstall.model.SplitInstallSessionStatus;
 import com.google.android.play.core.tasks.Task;
 import com.google.android.play.core.tasks.Tasks;
 
@@ -63,6 +66,17 @@ final class SplitInstallManagerImpl implements SplitInstallManager {
         } else {
             return mInstallService.startInstall(request.getModuleNames());
         }
+    }
+
+    @Override
+    public boolean startConfirmationDialogForResult(SplitInstallSessionState sessionState, Activity activity, int requestCode)
+            throws IntentSender.SendIntentException {
+        if (sessionState.status() == SplitInstallSessionStatus.REQUIRES_USER_CONFIRMATION && sessionState.resolutionIntent() != null) {
+            activity.startIntentSenderForResult(sessionState.resolutionIntent().getIntentSender(),
+                    requestCode, null, 0, 0, 0);
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -125,11 +139,11 @@ final class SplitInstallManagerImpl implements SplitInstallManager {
         ApplicationInfo appInfo;
         try {
             appInfo = context.getPackageManager().getApplicationInfo(packageName, PackageManager.GET_META_DATA);
-        } catch (PackageManager.NameNotFoundException e) {
+        } catch (Throwable e) {
             Log.w(TAG, "App is not found in PackageManager");
             return fusedModules;
         }
-        if (appInfo != null && appInfo.metaData != null) {
+        if (appInfo.metaData != null) {
             String fusedName;
             if ((fusedName = appInfo.metaData.getString("shadow.bundletool.com.android.dynamic.apk.fused.modules")) != null && !fusedName.isEmpty()) {
                 Collections.addAll(fusedModules, fusedName.split(",", -1));
@@ -154,7 +168,7 @@ final class SplitInstallManagerImpl implements SplitInstallManager {
         try {
             PackageInfo packageInfo;
             return (packageInfo = context.getPackageManager().getPackageInfo(packageName, 0)) != null ? packageInfo.splitNames : null;
-        } catch (PackageManager.NameNotFoundException var2) {
+        } catch (Throwable var2) {
             Log.d(TAG, "App is not found in PackageManager");
             return null;
         }

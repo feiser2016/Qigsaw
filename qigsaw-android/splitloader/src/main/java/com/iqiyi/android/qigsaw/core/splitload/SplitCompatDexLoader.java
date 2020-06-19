@@ -31,12 +31,11 @@ final class SplitCompatDexLoader {
             } else if (Build.VERSION.SDK_INT >= 14) {
                 V14.load(classLoader, files, dexOptDir);
             } else {
-                throw new RuntimeException("don't support under SDK version 14!");
+                throw new UnsupportedOperationException("don't support under SDK version 14!");
             }
             sPatchDexCount = files.size();
         }
     }
-
 
     static void unLoad(ClassLoader classLoader) throws Throwable {
         if (sPatchDexCount <= 0) {

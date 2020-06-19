@@ -24,7 +24,8 @@
 
 package com.iqiyi.android.qigsaw.core.splitreport;
 
-import android.content.Context;
+import androidx.annotation.MainThread;
+import androidx.annotation.NonNull;
 
 import java.util.List;
 
@@ -34,44 +35,24 @@ import java.util.List;
 public interface SplitLoadReporter {
 
     /**
-     * Qigsaw would load all installed splits when {@link android.app.Application#attachBaseContext(Context)} method is called.
      * When all modules are loaded successfully, this method would be invoked.
      *
-     * @param requestModuleNames modules need to be loaded.
-     * @param processName        current process name.
-     * @param cost               time in ms.
+     * @param processName  current process name.
+     * @param loadedSplits splits which have been loaded successfully.
+     * @param cost         time in ms.
      */
-    void onLoadOKUnderProcessStarting(List<String> requestModuleNames, String processName, long cost);
+    @MainThread
+    void onLoadOK(String processName, @NonNull List<SplitBriefInfo> loadedSplits, long cost);
 
     /**
-     * Qigsaw would load all installed splits when {@link android.app.Application#attachBaseContext(Context)} method is called.
      * When all modules are loaded completely, and at least one module failed, this method will be invoked.
      *
-     * @param requestModuleNames modules need to be loaded.
-     * @param processName        current process name.
-     * @param errors             a list of {@link SplitInstallError}
-     * @param cost               time in ms.
+     * @param processName  current process name.
+     * @param loadedSplits splits which have been loaded successfully, maybe empty.
+     * @param errors       splits which have been loaded unsuccessfully.
+     * @param cost         time in ms.
      */
-    void onLoadFailedUnderProcessStarting(List<String> requestModuleNames, String processName, List<SplitLoadError> errors, long cost);
+    @MainThread
+    void onLoadFailed(String processName, @NonNull List<SplitBriefInfo> loadedSplits, @NonNull List<SplitLoadError> errors, long cost);
 
-    /**
-     * Qigsaw would load all installed splits which user request to install.
-     * When all modules are loaded successfully, this method would be invoked.
-     *
-     * @param requestModuleNames modules need to be loaded.
-     * @param processName        current process name.
-     * @param cost               time in ms.
-     */
-    void onLoadOKUnderUserTriggering(List<String> requestModuleNames, String processName, long cost);
-
-    /**
-     * Qigsaw would load all installed splits which user request to install.
-     * When all modules are loaded completely, and at least one module failed, this method will be invoked.
-     *
-     * @param requestModuleNames modules need to be loaded.
-     * @param processName        current process name.
-     * @param errors             a list of {@link SplitInstallError}
-     * @param cost               time in ms.
-     */
-    void onLoadFailedUnderUserTriggering(List<String> requestModuleNames, String processName, List<SplitLoadError> errors, long cost);
 }

@@ -61,7 +61,7 @@ public class SampleDownloader implements Downloader {
             if (i == requests.size()) {
                 break;
             }
-            if (!request.getUrl().startsWith("assets")) {
+            if (!request.getUrl().startsWith("assets://") || !request.getUrl().startsWith("native://")) {
                 parentPath[i] = request.getFileDir();
                 fileName[i] = request.getFileName();
                 urls[i] = request.getUrl();
@@ -156,7 +156,7 @@ public class SampleDownloader implements Downloader {
 
     @Override
     public boolean isDeferredDownloadOnlyWhenUsingWifiData() {
-        return false;
+        return true;
     }
 
 }

@@ -30,7 +30,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
-import android.support.annotation.RestrictTo;
+import androidx.annotation.RestrictTo;
 
 import com.iqiyi.android.qigsaw.core.splitinstall.protocol.ISplitInstallService;
 import com.iqiyi.android.qigsaw.core.splitinstall.protocol.ISplitInstallServiceCallback;
@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 
 import static android.os.Process.THREAD_PRIORITY_BACKGROUND;
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 @RestrictTo(LIBRARY_GROUP)
 public final class SplitInstallService extends Service {
@@ -52,32 +52,32 @@ public final class SplitInstallService extends Service {
 
         @Override
         public void startInstall(String packageName, List<Bundle> moduleNames, Bundle versionCode, ISplitInstallServiceCallback callback) {
-            getHandler(packageName).post(new OnStartInstallTask(getApplicationContext(), callback, moduleNames));
+            getHandler(packageName).post(new OnStartInstallTask(callback, moduleNames));
         }
 
         @Override
         public void cancelInstall(String packageName, int sessionId, Bundle versionCode, ISplitInstallServiceCallback callback) {
-            getHandler(packageName).post(new OnCancelInstallTask(getApplicationContext(), callback, sessionId));
+            getHandler(packageName).post(new OnCancelInstallTask(callback, sessionId));
         }
 
         @Override
         public void getSessionState(String packageName, int sessionId, ISplitInstallServiceCallback callback) {
-            getHandler(packageName).post(new OnGetSessionStateTask(getApplicationContext(), callback, sessionId));
+            getHandler(packageName).post(new OnGetSessionStateTask(callback, sessionId));
         }
 
         @Override
         public void getSessionStates(String packageName, ISplitInstallServiceCallback callback) {
-            getHandler(packageName).post(new OnGetSessionStatesTask(getApplicationContext(), callback));
+            getHandler(packageName).post(new OnGetSessionStatesTask(callback));
         }
 
         @Override
         public void deferredInstall(String packageName, List<Bundle> moduleNames, Bundle versionCode, ISplitInstallServiceCallback callback) {
-            getHandler(packageName).post(new OnDeferredInstallTask(getApplicationContext(), callback, moduleNames));
+            getHandler(packageName).post(new OnDeferredInstallTask(callback, moduleNames));
         }
 
         @Override
         public void deferredUninstall(String packageName, List<Bundle> moduleNames, Bundle versionCode, ISplitInstallServiceCallback callback) {
-            getHandler(packageName).post(new OnDeferredUninstallTask(getApplicationContext(), callback, moduleNames));
+            getHandler(packageName).post(new OnDeferredUninstallTask(callback, moduleNames));
         }
     };
 
@@ -86,7 +86,7 @@ public final class SplitInstallService extends Service {
         return mBinder;
     }
 
-    private Handler getHandler(String packageName) {
+    static Handler getHandler(String packageName) {
         Handler handler;
         synchronized (sHandlerMap) {
             if (!sHandlerMap.containsKey(packageName)) {

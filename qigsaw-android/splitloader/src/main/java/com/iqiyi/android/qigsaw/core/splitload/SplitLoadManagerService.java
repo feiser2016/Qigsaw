@@ -25,11 +25,11 @@
 package com.iqiyi.android.qigsaw.core.splitload;
 
 import android.content.Context;
-import android.support.annotation.RestrictTo;
+import androidx.annotation.RestrictTo;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 /**
  * Create and manage {@link SplitLoadManager} instance.
@@ -39,8 +39,14 @@ public class SplitLoadManagerService {
 
     private static final AtomicReference<SplitLoadManager> sReference = new AtomicReference<>();
 
-    public static void install(Context context) {
-        sReference.compareAndSet(null, create(context));
+    public static void install(Context context,
+                               int splitLoadMode,
+                               boolean qigsawMode,
+                               boolean isMainProcess,
+                               String currentProcessName,
+                               String[] workProcesses,
+                               String[] forbiddenWorkProcesses) {
+        sReference.set(create(context, splitLoadMode, qigsawMode, isMainProcess, currentProcessName, workProcesses, forbiddenWorkProcesses));
     }
 
     public static boolean hasInstance() {
@@ -54,7 +60,13 @@ public class SplitLoadManagerService {
         return sReference.get();
     }
 
-    private static SplitLoadManager create(Context context) {
-        return new SplitLoadManagerImpl(context);
+    private static SplitLoadManager create(Context context,
+                                           int splitLoadMode,
+                                           boolean qigsawMode,
+                                           boolean isMainProcess,
+                                           String currentProcessName,
+                                           String[] workProcesses,
+                                           String[] forbiddenWorkProcesses) {
+        return new SplitLoadManagerImpl(context, splitLoadMode, qigsawMode, isMainProcess, currentProcessName, workProcesses, forbiddenWorkProcesses);
     }
 }

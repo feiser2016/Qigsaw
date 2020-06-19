@@ -2,9 +2,11 @@
 
 ![](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat)
 ![](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat)
-![](https://img.shields.io/badge/release-1.1.3-red.svg?style=flat)
+![](https://img.shields.io/badge/release-1.4.0-red.svg?style=flat)
 
 Qigsaw is a dynamic modularization library which is based on [Android App Bundles](https://developer.android.com/guide/app-bundle/). It supports dynamic delivery for split APK without reinstalling the base one.
+
+[README 中文版](./README.zh-CN.md)
 
 ![qigsaw](./assets/qigsaw.png)
 
@@ -15,7 +17,7 @@ Import qigsaw-gradle-plugin as a dependency in your main `build.gradle` in the r
 ```gradle
 buildscript {
     dependencies {
-        classpath 'com.iqiyi.android.qigsaw:gradle-plugin:1.1.3'
+        classpath 'com.iqiyi.android.qigsaw:gradle-plugin:1.4.0'
     }
 }
 ```
@@ -24,7 +26,7 @@ Then "apply" the plugin and import dependencies by adding the following lines to
 ```gradle
 dependencies {
     //qigsaw core lib
-    implementation "com.iqiyi.android.qigsaw:splitcore:1.1.3"
+    implementation "com.iqiyi.android.qigsaw:splitcore:1.4.0"
 }
 ...
 ...
@@ -77,6 +79,9 @@ Qigsaw supports some functions which Android App Bundle doesn't yet.
 2. Study the source code.
 3. Check [wiki](https://github.com/iqiyi/Qigsaw/wiki) or FAQ for help.
 4. Contact us <a href="mailto:kisson_cjw@hotmail.com">kisson_cjw@hotmail.com</a>.
+5. Join QQ group chat.
+
+![qigsaw_qq_group_chat](./assets/qigsaw_qq_group_chat.jpeg)
 
 ## Contributing
 

@@ -24,10 +24,9 @@
 
 package com.iqiyi.android.qigsaw.core.splitinstall.remote;
 
-import android.content.Context;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import com.iqiyi.android.qigsaw.core.splitinstall.protocol.ISplitInstallServiceCallback;
 
@@ -35,10 +34,8 @@ final class OnCancelInstallTask extends DefaultTask {
 
     private final int mSessionId;
 
-    OnCancelInstallTask(Context context,
-                        ISplitInstallServiceCallback callback,
-                        int sessionId) {
-        super(context, callback);
+    OnCancelInstallTask(ISplitInstallServiceCallback callback, int sessionId) {
+        super(callback);
         this.mSessionId = sessionId;
     }
 

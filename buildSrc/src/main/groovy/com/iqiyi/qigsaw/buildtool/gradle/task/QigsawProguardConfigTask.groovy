@@ -24,77 +24,56 @@
 
 package com.iqiyi.qigsaw.buildtool.gradle.task
 
-import com.iqiyi.qigsaw.buildtool.gradle.QigsawAppBasePlugin
+import com.android.annotations.Nullable
+import com.iqiyi.qigsaw.buildtool.gradle.extension.QigsawSplitExtensionHelper
+import com.iqiyi.qigsaw.buildtool.gradle.internal.tool.FileUtils
+import com.iqiyi.qigsaw.buildtool.gradle.internal.tool.SplitLogger
 import org.gradle.api.DefaultTask
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 
 class QigsawProguardConfigTask extends DefaultTask {
 
-    static final String PROGUARD_CONFIG_NAME = "qigsaw_proguard.pro"
+    static final String PROGUARD_CONFIG_SETTINGS =
+            "-keep class com.google.android.play.core.**{\n *;\n }\n" +
+                    "-keep class com.split.signature.**{\n *;\n }\n" +
+                    "-keep class com.iqiyi.android.qigsaw.core.extension.ComponentInfo{\n *;\n }\n" +
+                    "-keep class com.iqiyi.android.qigsaw.core.splitlib.**{\n *;\n }\n"
 
-    static final String PROGUARD_CONFIG_SETTINGS = "-keep class com.google.android.play.core.splitcompat.SplitCompat{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.listener.StateUpdatedListener{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.splitinstall.SplitInstallStateUpdatedListener{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.splitinstall.SplitInstallManager{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.splitinstall.SplitInstallManagerFactory{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.splitinstall.SplitInstallRequest{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.splitinstall.SplitInstallException{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.splitinstall.SplitInstallRequest\$Builder{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.splitinstall.SplitInstallHelper{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.splitinstall.model.SplitInstallErrorCode{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.splitinstall.model.SplitInstallSessionStatus{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.splitinstall.SplitInstallSessionState{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.tasks.Task{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.tasks.TaskExecutors{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.tasks.Tasks{\n *;\n }\n" +
-            "-keep class com.google.android.play.core.tasks.RuntimeExecutionException{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.tasks.OnSuccessListener{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.tasks.OnFailureListener{\n *;\n }\n" +
-            "-keep interface com.google.android.play.core.tasks.OnCompleteListener{\n *;\n }\n" +
-            "-keep class com.split.signature.**{\n *;\n }\n" +
-            "-keep class com.iqiyi.android.qigsaw.core.extension.AABExtension{\n public <methods>;\n }\n" +
-            "-keep class com.iqiyi.android.qigsaw.core.splitdownload.Downloader{\n *;\n }\n" +
-            "-keep class * implements com.iqiyi.android.qigsaw.core.splitdownload.Downloader{\n *;\n }\n" +
-            "-keep class com.iqiyi.android.qigsaw.core.Qigsaw{\n public <methods>;\n }\n" +
-            "-keep class com.iqiyi.android.qigsaw.core.extension.ComponentInfo{\n *;\n }\n"
+    @OutputFile
+    File outputFile
 
-    def applicationVariant
-
-    String packageName
-
-    QigsawProguardConfigTask() {
-
-    }
+    @InputFile
+    @Optional
+    @Nullable
+    File applyMappingFile = QigsawSplitExtensionHelper.getApplyMappingFile(project)
 
     @TaskAction
     void updateQigsawProguardConfig() {
-        String proguardFilePath = QigsawAppBasePlugin.QIGSAW_INTERMEDIATES + "mapping" + File.separator + applicationVariant.name
-        project.mkdir(proguardFilePath)
-        def file = project.file(proguardFilePath + File.separator + PROGUARD_CONFIG_NAME)
-        project.logger.debug("try update qigsaw proguard file with ${file}")
-
-        // Create the directory if it doesnt exist already
-        file.getParentFile().mkdirs()
-
+        if (outputFile.exists()) {
+            FileUtils.deleteDir(outputFile)
+        }
+        if (!outputFile.parentFile.exists()) {
+            outputFile.parentFile.mkdirs()
+        }
+        SplitLogger.w("try update qigsaw proguard file with ${outputFile}")
         // Write our recommended proguard settings to this file
-        FileWriter fw = new FileWriter(file.path)
-        String applyMappingPath = project.extensions.qigsawSplit.applyMapping
-        if (applyMappingPath != null) {
-            File mappingFile = new File(applyMappingPath)
-            if (mappingFile.exists() && mappingFile.isFile() && mappingFile.length() > 0) {
-                project.logger.debug("try add applymapping ${mappingFile.path} to build the package")
-                fw.write("-applymapping " + applyMappingPath)
+        FileWriter fw = new FileWriter(outputFile.path)
+        if (applyMappingFile != null) {
+            if (applyMappingFile.exists() && applyMappingFile.isFile() && applyMappingFile.length() > 0) {
+                SplitLogger.w("try to add applymapping ${applyMappingFile.path} to build the package")
+                fw.write("-applymapping " + applyMappingFile.absolutePath)
                 fw.write("\n")
             } else {
-                project.logger.error("applymapping file ${applyMappingPath} is not valid, just ignore!")
+                SplitLogger.e("applymapping file ${applyMappingFile.absolutePath} is not valid, just ignore!")
             }
         } else {
-            project.logger.error("applymapping file ${applyMappingPath} is not null, just ignore!")
+            SplitLogger.e("applymapping file is null, just ignore!")
         }
-        fw.write(PROGUARD_CONFIG_SETTINGS + "-keep class ${packageName}.BuildConfig{\n *;\n }\n")
+        fw.write(PROGUARD_CONFIG_SETTINGS)
         fw.close()
-        applicationVariant.getBuildType().buildType.proguardFiles(file)
-        def files = applicationVariant.buildType.proguardFiles
-        project.logger.info("now proguard files are ${files}")
     }
 }
+

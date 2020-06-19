@@ -29,11 +29,20 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.support.annotation.RestrictTo;
 
-import com.iqiyi.android.qigsaw.core.splitdownload.DownloadRequest;
+import androidx.annotation.RestrictTo;
+
+import com.iqiyi.android.qigsaw.core.common.FileUtil;
+import com.iqiyi.android.qigsaw.core.common.ProcessUtil;
+import com.iqiyi.android.qigsaw.core.common.SplitLog;
+import com.iqiyi.android.qigsaw.core.splitinstall.SplitPendingUninstallManager;
 import com.iqiyi.android.qigsaw.core.splitrequest.splitinfo.SplitInfo;
+import com.iqiyi.android.qigsaw.core.splitrequest.splitinfo.SplitInfoManager;
+import com.iqiyi.android.qigsaw.core.splitrequest.splitinfo.SplitInfoManagerService;
+import com.iqiyi.android.qigsaw.core.splitrequest.splitinfo.SplitPathManager;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -41,10 +50,50 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 @RestrictTo(LIBRARY_GROUP)
 public abstract class SplitInstallSupervisor {
+
+    private static final String TAG = "SplitInstallSupervisor";
+
+    public final void startUninstall(Context context) {
+        SplitPendingUninstallManager pendingUninstallManager = new SplitPendingUninstallManager();
+        List<String> uninstallSplits = pendingUninstallManager.readPendingUninstallSplits();
+        SplitInfoManager manager = SplitInfoManagerService.getInstance();
+        List<SplitInfo> realUninstallSplits = null;
+        if (uninstallSplits != null && manager != null) {
+            List<SplitInfo> uninstallSplitInfoList = manager.getSplitInfos(context, uninstallSplits);
+            if (uninstallSplitInfoList != null) {
+                ProcessUtil.killAllOtherProcess(context);
+                realUninstallSplits = new ArrayList<>(uninstallSplitInfoList.size());
+                for (SplitInfo uninstallSplitInfo : uninstallSplitInfoList) {
+                    try {
+                        String installedMark = uninstallSplitInfo.obtainInstalledMark(context);
+                        File installedMarkFile = SplitPathManager.require().getSplitMarkFile(uninstallSplitInfo, installedMark);
+                        boolean ret = FileUtil.deleteFileSafely(installedMarkFile);
+                        if (ret) {
+                            realUninstallSplits.add(uninstallSplitInfo);
+                        }
+                    } catch (IOException ignored) {
+
+                    }
+                }
+            }
+        }
+        if (realUninstallSplits != null && !realUninstallSplits.isEmpty()) {
+            SplitInstallService.getHandler(context.getPackageName()).post(new SplitStartUninstallTask(realUninstallSplits));
+        } else {
+            SplitLog.d(TAG, "No splits need to uninstall!");
+        }
+        SplitInfoManager infoManager = SplitInfoManagerService.getInstance();
+        if (infoManager != null) {
+            Collection<SplitInfo> allSplitInfos = infoManager.getAllSplitInfo(context);
+            if (allSplitInfos != null) {
+                SplitInstallService.getHandler(context.getPackageName()).post(new SplitDeleteRedundantVersionTask(context, allSplitInfos));
+            }
+        }
+    }
 
     public abstract void startInstall(List<Bundle> moduleNames, Callback callback) throws RemoteException;
 
@@ -58,9 +107,9 @@ public abstract class SplitInstallSupervisor {
 
     public abstract void getSessionStates(Callback callback) throws RemoteException;
 
-    public abstract void continueInstallWithUserConfirmation(int sessionId, List<DownloadRequest> requests);
+    public abstract boolean continueInstallWithUserConfirmation(int sessionId);
 
-    public abstract void cancelInstallWithoutUserConfirmation(int sessionId);
+    public abstract boolean cancelInstallWithoutUserConfirmation(int sessionId);
 
     protected static Bundle bundleErrorCode(int errorCode) {
         Bundle bundle = new Bundle();
@@ -110,7 +159,7 @@ public abstract class SplitInstallSupervisor {
                 .getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivityManager != null) {
             NetworkInfo[] networkInfo = connectivityManager.getAllNetworkInfo();
-            if (networkInfo != null && networkInfo.length > 0) {
+            if (networkInfo.length > 0) {
                 for (NetworkInfo info : networkInfo) {
                     if (info.getState() == NetworkInfo.State.CONNECTED) {
                         return true;

@@ -24,10 +24,10 @@
 
 package com.iqiyi.android.qigsaw.core.extension;
 
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,15 +53,17 @@ final class SplitComponentInfoProvider {
     }
 
     @NonNull
-    List<String> getSplitActivities() {
-        List<String> activities = new ArrayList<>();
+    Map<String, List<String>> getSplitActivitiesMap() {
+        Map<String, List<String>> splitActivitiesMap = new HashMap<>(0);
         for (String splitName : splitNames) {
             String[] result = ComponentInfoManager.getSplitActivities(splitName);
             if (result != null && result.length > 0) {
-                activities.addAll(Arrays.asList(result));
+                List<String> activities = new ArrayList<>();
+                Collections.addAll(activities, result);
+                splitActivitiesMap.put(splitName, activities);
             }
         }
-        return activities;
+        return splitActivitiesMap;
     }
 
     @NonNull
@@ -70,7 +72,7 @@ final class SplitComponentInfoProvider {
         for (String splitName : splitNames) {
             String[] result = ComponentInfoManager.getSplitServices(splitName);
             if (result != null && result.length > 0) {
-                services.addAll(Arrays.asList(result));
+                Collections.addAll(services, result);
             }
         }
         return services;
@@ -82,29 +84,10 @@ final class SplitComponentInfoProvider {
         for (String splitName : splitNames) {
             String[] result = ComponentInfoManager.getSplitReceivers(splitName);
             if (result != null && result.length > 0) {
-                receivers.addAll(Arrays.asList(result));
+                Collections.addAll(receivers, result);
             }
         }
         return receivers;
-    }
-
-    /**
-     * Gets all splits' provider names
-     * Qigsaw-Gradle-Plugin would write split provider names in Class ComponentInfo
-     *
-     * @return a map of provider names.
-     */
-    @NonNull
-    Map<String, List<String>> getSplitProviders() {
-        Map<String, List<String>> providerMap = new HashMap<>();
-        for (String splitName : splitNames) {
-            String[] result = ComponentInfoManager.getSplitProviders(splitName);
-            if (result != null && result.length > 0) {
-                List<String> providers = new ArrayList<>(Arrays.asList(result));
-                providerMap.put(splitName, providers);
-            }
-        }
-        return providerMap;
     }
 
 }

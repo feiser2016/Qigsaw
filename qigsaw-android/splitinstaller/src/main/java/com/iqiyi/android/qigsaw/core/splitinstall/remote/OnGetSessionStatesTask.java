@@ -24,10 +24,9 @@
 
 package com.iqiyi.android.qigsaw.core.splitinstall.remote;
 
-import android.content.Context;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 
 import com.iqiyi.android.qigsaw.core.splitinstall.protocol.ISplitInstallServiceCallback;
 
@@ -35,9 +34,8 @@ import java.util.List;
 
 final class OnGetSessionStatesTask extends DefaultTask {
 
-    OnGetSessionStatesTask(Context context,
-                           ISplitInstallServiceCallback callback) {
-        super(context, callback);
+    OnGetSessionStatesTask(ISplitInstallServiceCallback callback) {
+        super(callback);
     }
 
     @Override

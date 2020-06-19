@@ -25,11 +25,10 @@
 package com.iqiyi.qigsaw.buildtool.gradle
 
 import com.android.build.gradle.AppExtension
-import com.android.build.gradle.api.ApplicationVariant
-import com.iqiyi.qigsaw.buildtool.gradle.transform.SplitComponentTransform
+import com.iqiyi.qigsaw.buildtool.gradle.transform.SplitLibraryLoaderTransform
+import com.iqiyi.qigsaw.buildtool.gradle.transform.SplitResourcesLoaderTransform
 import org.gradle.api.GradleException
 import org.gradle.api.Project
-import org.gradle.api.Task
 
 class QigsawDynamicFeaturePlugin extends QigsawPlugin {
 
@@ -38,26 +37,13 @@ class QigsawDynamicFeaturePlugin extends QigsawPlugin {
         if (!project.getPlugins().hasPlugin("com.android.dynamic-feature")) {
             throw new GradleException("generateQigsawApk: Dynamic-feature plugin required")
         }
+        boolean hasQigsawTask = isQigsawBuild(project)
         AppExtension android = project.extensions.getByType(AppExtension)
-        SplitComponentTransform transform
-        if (hasQigsawTask(project)) {
-            transform = new SplitComponentTransform(project)
-            android.registerTransform(transform)
-        }
-        project.afterEvaluate {
-            android.applicationVariants.all { variant ->
-                ApplicationVariant appVariant = variant
-                File manifestOutputDirectory = getMergedManifestDir(project, appVariant.name.capitalize())
-                File manifestFile = new File(manifestOutputDirectory, "AndroidManifest.xml")
-                Task splitComponentTransformTask = getSplitComponentTransformTask(project, appVariant.name.capitalize())
-                if (splitComponentTransformTask != null) {
-                    splitComponentTransformTask.doFirst {
-                        if (transform != null) {
-                            transform.setManifest(manifestFile)
-                        }
-                    }
-                }
-            }
+        if (hasQigsawTask) {
+            SplitResourcesLoaderTransform resourcesLoaderTransform = new SplitResourcesLoaderTransform(project)
+            SplitLibraryLoaderTransform libraryLoaderTransform = new SplitLibraryLoaderTransform(project)
+            android.registerTransform(resourcesLoaderTransform)
+            android.registerTransform(libraryLoaderTransform)
         }
     }
 }

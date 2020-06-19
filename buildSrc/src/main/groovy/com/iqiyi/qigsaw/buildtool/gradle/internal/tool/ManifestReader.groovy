@@ -24,24 +24,99 @@
 
 package com.iqiyi.qigsaw.buildtool.gradle.internal.tool
 
-interface ManifestReader {
+import com.google.common.collect.ImmutableSet
+import com.iqiyi.qigsaw.buildtool.gradle.internal.entity.ComponentInfo
 
-    ComponentInfo readApplicationName()
+class ManifestReader {
 
-    String readPackageName()
+    def manifest
 
-    String readVersionCode()
+    ManifestReader(File manifest) {
+        this.manifest = new XmlSlurper().parse(manifest)
+    }
 
-    String readVersionName()
+    String readApplicationName() {
+        String name = manifest.application.'@android:name'
+        return name
+    }
 
-    List<ComponentInfo> readActivities()
+    Set<String> readActivityNames() {
+        ImmutableSet.Builder activities = ImmutableSet.builder()
+        manifest.application.activity.each {
+            String name = it.'@android:name'.toString()
+            activities.add(name)
+        }
+        return activities.build()
+    }
 
-    List<ComponentInfo> readServices()
+    Set<String> readServiceNames() {
+        ImmutableSet.Builder services = ImmutableSet.builder()
+        manifest.application.service.each {
+            String name = it.'@android:name'.toString()
+            services.add(name)
+        }
+        return services.build()
+    }
 
-    List<ComponentInfo> readReceivers()
+    Set<String> readReceiverNames() {
+        ImmutableSet.Builder receivers = ImmutableSet.builder()
+        manifest.application.receiver.each {
+            String name = it.'@android:name'.toString()
+            receivers.add(name)
+        }
+        return receivers.build()
+    }
 
-    List<ComponentInfo> readProviders()
+    Set<String> readProviderNames() {
+        ImmutableSet.Builder providers = ImmutableSet.builder()
+        manifest.application.provider.each {
+            String name = it.'@android:name'.toString()
+            providers.add(name)
+        }
+        return providers.build()
+    }
 
-    boolean readOnDemand()
+    Set<ComponentInfo> readActivities() {
+        ImmutableSet.Builder activities = ImmutableSet.builder()
+        manifest.application.activity.each {
+            String name = it.'@android:name'.toString()
+            String process = it.'@android:process'.toString()
+            activities.add(new ComponentInfo(name, process))
+        }
+        return activities.build()
+    }
 
+    Set<ComponentInfo> readServices() {
+        ImmutableSet.Builder services = ImmutableSet.builder()
+        manifest.application.service.each {
+            String name = it.'@android:name'.toString()
+            String process = it.'@android:process'.toString()
+            services.add(new ComponentInfo(name, process))
+        }
+        return services.build()
+    }
+
+    Set<ComponentInfo> readReceivers() {
+        ImmutableSet.Builder receivers = ImmutableSet.builder()
+        manifest.application.receiver.each {
+            String name = it.'@android:name'.toString()
+            String process = it.'@android:process'.toString()
+            receivers.add(new ComponentInfo(name, process))
+        }
+        return receivers.build()
+    }
+
+    Set<ComponentInfo> readProviders() {
+        ImmutableSet.Builder providers = ImmutableSet.builder()
+        manifest.application.provider.each {
+            String name = it.'@android:name'.toString()
+            String process = it.'@android:process'.toString()
+            providers.add(new ComponentInfo(name, process))
+        }
+        return providers.build()
+    }
+
+    boolean readOnDemand() {
+        return Boolean.valueOf(manifest.module.'@dist:onDemand'.toString())
+    }
 }

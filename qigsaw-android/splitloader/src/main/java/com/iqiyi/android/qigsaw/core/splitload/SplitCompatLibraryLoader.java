@@ -20,7 +20,7 @@ final class SplitCompatLibraryLoader {
     private static final String TAG = "SplitCompatLibraryLoader";
 
     /**
-     * All versions of createSplitInstallService logic follow these rules:
+     * All versions of load logic follow these rules:
      * 1. If path of {@code folder} is not injected into the classloader, inject it to the
      * beginning of pathList in the classloader.
      * <p>
@@ -40,7 +40,7 @@ final class SplitCompatLibraryLoader {
             try {
                 V25.load(classLoader, folder);
             } catch (Throwable throwable) {
-                // createSplitInstallService fail, try to treat it as v23
+                // load fail, try to treat it as v23
                 // some preview N version may go here
                 SplitLog.e(TAG, "load, v25 fail, sdk: %d, error: %s, try to fallback to V23",
                         Build.VERSION.SDK_INT, throwable.getMessage());
@@ -50,7 +50,7 @@ final class SplitCompatLibraryLoader {
             try {
                 V23.load(classLoader, folder);
             } catch (Throwable throwable) {
-                // createSplitInstallService fail, try to treat it as v14
+                // load fail, try to treat it as v14
                 SplitLog.e(TAG, "load, v23 fail, sdk: %d, error: %s, try to fallback to V14",
                         Build.VERSION.SDK_INT, throwable.getMessage());
 
@@ -59,38 +59,7 @@ final class SplitCompatLibraryLoader {
         } else if (Build.VERSION.SDK_INT >= 14) {
             V14.load(classLoader, folder);
         } else {
-            V4.load(classLoader, folder);
-        }
-    }
-
-    private static final class V4 {
-        private static void load(ClassLoader classLoader, File folder) throws Throwable {
-            String addPath = folder.getPath();
-            Field pathField = HiddenApiReflection.findField(classLoader, "libFile");
-            final String origLibPaths = (String) pathField.get(classLoader);
-            final String[] origLibPathSplit = origLibPaths.split(":");
-            final StringBuilder newLibPaths = new StringBuilder(addPath);
-
-            for (String origLibPath : origLibPathSplit) {
-                if (origLibPath == null || addPath.equals(origLibPath)) {
-                    continue;
-                }
-                newLibPaths.append(':').append(origLibPath);
-            }
-            pathField.set(classLoader, newLibPaths.toString());
-
-            final Field libraryPathElementsFiled = HiddenApiReflection.findField(classLoader, "libraryPathElements");
-            final List<String> libraryPathElements = (List<String>) libraryPathElementsFiled.get(classLoader);
-            final Iterator<String> libPathElementIt = libraryPathElements.iterator();
-            while (libPathElementIt.hasNext()) {
-                final String libPath = libPathElementIt.next();
-                if (addPath.equals(libPath)) {
-                    libPathElementIt.remove();
-                    break;
-                }
-            }
-            libraryPathElements.add(0, addPath);
-            libraryPathElementsFiled.set(classLoader, libraryPathElements);
+            throw new UnsupportedOperationException("don't support under SDK version 14!");
         }
     }
 

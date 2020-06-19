@@ -24,16 +24,17 @@
 
 package com.iqiyi.android.qigsaw.core.splitinstall;
 
+import android.app.Activity;
 import android.content.Context;
-import android.support.annotation.Nullable;
-import android.support.annotation.RestrictTo;
+import androidx.annotation.Nullable;
+import androidx.annotation.RestrictTo;
 
 import com.iqiyi.android.qigsaw.core.splitdownload.Downloader;
 import com.iqiyi.android.qigsaw.core.splitinstall.remote.SplitInstallSupervisor;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 @RestrictTo(LIBRARY_GROUP)
 public final class SplitApkInstaller {
@@ -44,24 +45,30 @@ public final class SplitApkInstaller {
 
     }
 
-    @Nullable
-    private static SplitInstallSupervisor createSplitInstallSupervisor(Context context) {
-        Downloader downloader = SplitDownloaderManager.getDownloader();
-        if (downloader != null) {
-            SplitInstallSessionManager sessionManager = new SplitInstallSessionManagerImpl(context);
-            return new SplitInstallSupervisorImpl(context, sessionManager, downloader);
+    public static void install(Context context,
+                               Downloader downloader,
+                               Class<? extends Activity> obtainUserConfirmationActivityClass,
+                               boolean verifySignature) {
+        if (sSplitApkInstallerRef.get() == null) {
+            sSplitApkInstallerRef.set(new SplitInstallSupervisorImpl(
+                    context,
+                    new SplitInstallSessionManagerImpl(context),
+                    downloader,
+                    obtainUserConfirmationActivityClass,
+                    verifySignature)
+            );
         }
-        return null;
     }
 
     @Nullable
-    public static SplitInstallSupervisor getSplitInstallSupervisor(Context context) {
-        if (sSplitApkInstallerRef.get() == null) {
-            SplitInstallSupervisor instance = createSplitInstallSupervisor(context);
-            if (instance != null) {
-                sSplitApkInstallerRef.set(instance);
-            }
-        }
+    public static SplitInstallSupervisor getSplitInstallSupervisor() {
         return sSplitApkInstallerRef.get();
+    }
+
+    public static void startUninstallSplits(Context context) {
+        if (sSplitApkInstallerRef.get() == null) {
+            throw new RuntimeException("Have you install SplitApkInstaller?");
+        }
+        sSplitApkInstallerRef.get().startUninstall(context);
     }
 }

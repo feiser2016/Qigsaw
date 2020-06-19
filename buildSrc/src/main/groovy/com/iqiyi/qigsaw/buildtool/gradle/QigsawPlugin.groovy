@@ -26,45 +26,32 @@ package com.iqiyi.qigsaw.buildtool.gradle
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.Task
 
 abstract class QigsawPlugin implements Plugin<Project> {
+
+    public static final String QIGSAW_BUILD = "QIGSAW_BUILD"
 
     public static final String QIGSAW = "qigsaw"
 
     public static final String ASSEMBLE = "Assemble"
 
+    public static final String INSTALL = "Install"
+
     public static final String QIGSAW_ASSEMBLE_TASK_PREFIX = QIGSAW + ASSEMBLE
 
-    static boolean hasQigsawTask(Project project) {
+    public static final String QIGSAW_INSTALL_TASK_PREFIX = QIGSAW + INSTALL
+
+    static boolean isQigsawBuild(Project project) {
         List<String> startTaskNames = project.gradle.startParameter.taskNames
         for (String taskName : startTaskNames) {
-            if (taskName.contains(QIGSAW)) {
+            if (taskName.contains(QIGSAW_ASSEMBLE_TASK_PREFIX) || taskName.contains(QIGSAW_INSTALL_TASK_PREFIX)) {
                 return true
             }
         }
-        return false
-    }
-
-    static Task getProcessManifestTask(Project project, String variantName) {
-        String mergeManifestTaskName = "process${variantName}Manifest"
-        return project.tasks.findByName(mergeManifestTaskName)
-    }
-
-    static Task getSplitComponentTransformTask(Project project, String variantName) {
-        return project.tasks.findByName("transformClassesWithSplitComponentTransformFor${variantName}")
-    }
-
-    static File getMergedManifestDir(Project project, String variantName) {
-        Task processManifest = getProcessManifestTask(project, variantName)
-        File mergedManifestDir = null
-        if (processManifest != null) {
-            processManifest.outputs.files.each {
-                if (it.toPath().toString().contains(File.separator + "merged_manifests" + File.separator)) {
-                    mergedManifestDir = it.toPath().toFile()
-                }
-            }
+        if (project.hasProperty(QIGSAW_BUILD) || System.getenv().containsKey(QIGSAW_BUILD)
+                || System.properties.containsKey(QIGSAW_BUILD)) {
+            return true
         }
-        return mergedManifestDir
+        return false
     }
 }

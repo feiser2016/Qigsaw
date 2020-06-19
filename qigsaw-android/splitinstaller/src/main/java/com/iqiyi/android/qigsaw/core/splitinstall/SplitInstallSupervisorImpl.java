@@ -24,6 +24,7 @@
 
 package com.iqiyi.android.qigsaw.core.splitinstall;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -31,7 +32,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcelable;
 import android.text.TextUtils;
-import android.util.Pair;
 
 import com.iqiyi.android.qigsaw.core.common.FileUtil;
 import com.iqiyi.android.qigsaw.core.common.SplitBaseInfoProvider;
@@ -49,8 +49,10 @@ import com.iqiyi.android.qigsaw.core.splitinstall.remote.SplitInstallSupervisor;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -66,27 +68,50 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
 
     private final long downloadSizeThresholdValue;
 
-    private final Set<String> installedSplitInstallInfo;
+    private final Set<String> installedSplitForAAB;
+
+    private final Class<?> obtainUserConfirmationActivityClass;
+
+    private final SplitInstaller splitInstaller;
+
+    private final boolean verifySignature;
+
+    private final List<String> dynamicFeatures;
 
     SplitInstallSupervisorImpl(Context appContext,
                                SplitInstallSessionManager sessionManager,
-                               Downloader userDownloader) {
+                               Downloader userDownloader,
+                               Class<? extends Activity> obtainUserConfirmationActivityClass,
+                               boolean verifySignature) {
         this.appContext = appContext;
         this.sessionManager = sessionManager;
         this.userDownloader = userDownloader;
         long downloadSizeThreshold = userDownloader.getDownloadSizeThresholdWhenUsingMobileData();
-        this.downloadSizeThresholdValue = downloadSizeThreshold == -1 ? Long.MAX_VALUE : downloadSizeThreshold;
-        this.installedSplitInstallInfo = new SplitAABInfoProvider(this.appContext).getInstalledSplitsForAAB();
+        this.downloadSizeThresholdValue = downloadSizeThreshold < 0 ? Long.MAX_VALUE : downloadSizeThreshold;
+        this.installedSplitForAAB = new SplitAABInfoProvider(this.appContext).getInstalledSplitsForAAB();
+        this.obtainUserConfirmationActivityClass = obtainUserConfirmationActivityClass;
+        this.splitInstaller = new SplitInstallerImpl(appContext, verifySignature);
+        this.verifySignature = verifySignature;
+        String[] dynamicFeaturesArray = SplitBaseInfoProvider.getDynamicFeatures();
+        this.dynamicFeatures = dynamicFeaturesArray == null ? null : Arrays.asList(dynamicFeaturesArray);
+        if (dynamicFeatures == null) {
+            SplitLog.w(TAG, "Can't read dynamicFeatures from SplitBaseInfoProvider");
+        }
     }
 
     @Override
     public void startInstall(List<Bundle> moduleNames, Callback callback) {
         List<String> moduleNameList = unBundleModuleNames(moduleNames);
-        List<SplitInfo> needInstallSplits = getSplitInfoList(moduleNameList);
-        int errorCode = onPreInstallSplits(moduleNameList, isAllSplitsBuiltIn(needInstallSplits));
+        int errorCode = onPreInstallSplits(moduleNameList);
         if (errorCode != SplitInstallInternalErrorCode.NO_ERROR) {
             callback.onError(bundleErrorCode(errorCode));
         } else {
+            List<SplitInfo> needInstallSplits = getNeed2BeInstalledSplits(moduleNameList);
+            //check network status
+            if (!isAllSplitsBuiltIn(needInstallSplits) && !isNetworkAvailable(appContext)) {
+                callback.onError(bundleErrorCode(SplitInstallInternalErrorCode.NETWORK_ERROR));
+                return;
+            }
             startDownloadSplits(moduleNameList, needInstallSplits, callback);
         }
     }
@@ -94,15 +119,15 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
     @Override
     public void deferredInstall(List<Bundle> moduleNames, Callback callback) {
         List<String> moduleNameList = unBundleModuleNames(moduleNames);
-        List<SplitInfo> needInstallSplits = getSplitInfoList(moduleNameList);
-        int errorCode = onPreInstallSplits(moduleNameList, isAllSplitsBuiltIn(needInstallSplits));
+        int errorCode = onPreInstallSplits(moduleNameList);
         if (errorCode == SplitInstallInternalErrorCode.NO_ERROR) {
-            if (!getInstalledSplitInstallInfo().isEmpty()) {
-                if (getInstalledSplitInstallInfo().containsAll(moduleNameList)) {
+            if (!getInstalledSplitForAAB().isEmpty()) {
+                if (getInstalledSplitForAAB().containsAll(moduleNameList)) {
                     callback.onDeferredInstall(null);
                 }
             } else {
-                deferredDownloadSplits(moduleNameList, needInstallSplits, callback);
+                List<SplitInfo> needInstallSplits = getNeed2BeInstalledSplits(moduleNameList);
+                deferredDownloadSplits(needInstallSplits, callback);
             }
         } else {
             callback.onError(bundleErrorCode(errorCode));
@@ -111,8 +136,29 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
 
     @Override
     public void deferredUninstall(List<Bundle> moduleNames, Callback callback) {
-        //don't support now.
-        callback.onError(bundleErrorCode(SplitInstallInternalErrorCode.INTERNAL_ERROR));
+        if (!getInstalledSplitForAAB().isEmpty()) {
+            callback.onError(bundleErrorCode(SplitInstallInternalErrorCode.UNINSTALLATION_UNSUPPORTED));
+            return;
+        }
+        List<String> moduleNameList = unBundleModuleNames(moduleNames);
+        int errorCode = checkInternalErrorCode();
+        if (errorCode != SplitInstallInternalErrorCode.NO_ERROR) {
+            callback.onError(bundleErrorCode(errorCode));
+            return;
+        }
+        if (isRequestInvalid(moduleNameList)) {
+            callback.onError(bundleErrorCode(SplitInstallInternalErrorCode.INVALID_REQUEST));
+            return;
+        }
+        SplitPendingUninstallManager uninstallInfoManager = new SplitPendingUninstallManager();
+        boolean result = uninstallInfoManager.recordPendingUninstallSplits(moduleNameList);
+        if (result) {
+            SplitLog.w(TAG, "Succeed to record pending uninstall splits %s!", moduleNameList.toString());
+            callback.onDeferredUninstall(null);
+        } else {
+            SplitLog.w(TAG, "Failed to record pending uninstall splits!");
+            callback.onError(bundleErrorCode(SplitInstallInternalErrorCode.INTERNAL_ERROR));
+        }
     }
 
     @Override
@@ -163,24 +209,28 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
     }
 
     @Override
-    public void continueInstallWithUserConfirmation(int sessionId, List<DownloadRequest> requests) {
+    public boolean continueInstallWithUserConfirmation(int sessionId) {
         SplitInstallInternalSessionState sessionState = sessionManager.getSessionState(sessionId);
-        List<String> moduleNames = sessionState.moduleNames();
-        List<SplitInfo> splitInfoList = new ArrayList<>();
-        for (String moduleName : moduleNames) {
-            splitInfoList.add(SplitInfoManagerService.getInstance().getSplitInfo(appContext, moduleName));
+        if (sessionState != null) {
+            StartDownloadCallback downloadCallback = new StartDownloadCallback(
+                    splitInstaller, sessionId, sessionManager, sessionState.needInstalledSplits);
+            sessionManager.changeSessionState(sessionId, SplitInstallInternalSessionStatus.PENDING);
+            sessionManager.emitSessionState(sessionState);
+            userDownloader.startDownload(sessionState.sessionId(), sessionState.downloadRequests, downloadCallback);
+            return true;
         }
-        StartDownloadCallback downloadCallback = new StartDownloadCallback(appContext, sessionId, sessionManager, moduleNames, splitInfoList);
-        sessionManager.changeSessionState(sessionId, SplitInstallInternalSessionStatus.PENDING);
-        sessionManager.emitSessionState(sessionState);
-        userDownloader.startDownload(sessionState.sessionId(), requests, downloadCallback);
+        return false;
     }
 
     @Override
-    public void cancelInstallWithoutUserConfirmation(int sessionId) {
+    public boolean cancelInstallWithoutUserConfirmation(int sessionId) {
         SplitInstallInternalSessionState sessionState = sessionManager.getSessionState(sessionId);
-        sessionManager.changeSessionState(sessionState.sessionId(), SplitInstallInternalSessionStatus.CANCELED);
-        sessionManager.emitSessionState(sessionState);
+        if (sessionState != null) {
+            sessionManager.changeSessionState(sessionState.sessionId(), SplitInstallInternalSessionStatus.CANCELED);
+            sessionManager.emitSessionState(sessionState);
+            return true;
+        }
+        return false;
     }
 
     private boolean isAllSplitsBuiltIn(List<SplitInfo> needInstallSplits) {
@@ -192,26 +242,23 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
         return true;
     }
 
-    private int onPreInstallSplits(List<String> moduleNames, boolean ignoredNetworkError) {
-        if (!getInstalledSplitInstallInfo().isEmpty()) {
-            if (!getInstalledSplitInstallInfo().containsAll(moduleNames)) {
+    private int onPreInstallSplits(List<String> moduleNames) {
+        if (!getInstalledSplitForAAB().isEmpty()) {
+            if (!getInstalledSplitForAAB().containsAll(moduleNames)) {
                 return SplitInstallInternalErrorCode.INVALID_REQUEST;
             }
         } else {
             int errorCode = checkInternalErrorCode();
             if (errorCode == SplitInstallInternalErrorCode.NO_ERROR) {
-                errorCode = checkRequestErrorCode(moduleNames, ignoredNetworkError);
+                errorCode = checkRequestErrorCode(moduleNames);
             }
             return errorCode;
         }
         return SplitInstallInternalErrorCode.NO_ERROR;
     }
 
-    private int checkRequestErrorCode(List<String> moduleNames, boolean ignoredNetworkError) {
-        if (!ignoredNetworkError && !isNetworkAvailable(appContext)) {
-            return SplitInstallInternalErrorCode.NETWORK_ERROR;
-        }
-        if (!isRequestValid(moduleNames)) {
+    private int checkRequestErrorCode(List<String> moduleNames) {
+        if (isRequestInvalid(moduleNames)) {
             return SplitInstallInternalErrorCode.INVALID_REQUEST;
         }
         if (!isModuleAvailable(moduleNames)) {
@@ -246,39 +293,44 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
         return SplitInstallInternalErrorCode.NO_ERROR;
     }
 
-    private Set<String> getInstalledSplitInstallInfo() {
-        return installedSplitInstallInfo;
+    private Set<String> getInstalledSplitForAAB() {
+        return installedSplitForAAB;
     }
 
-    private List<SplitInfo> getSplitInfoList(List<String> moduleNames) {
+    private List<SplitInfo> getNeed2BeInstalledSplits(List<String> moduleNames) {
         SplitInfoManager manager = SplitInfoManagerService.getInstance();
-        List<SplitInfo> needInstallSplits = new ArrayList<>();
-        for (String name : moduleNames) {
-            SplitInfo info = manager.getSplitInfo(appContext, name);
-            if (info != null) {
-                needInstallSplits.add(info);
+        assert manager != null;
+        List<SplitInfo> needInstallSplitInfos = manager.getSplitInfos(appContext, moduleNames);
+        Set<String> dependenciesSplits = new HashSet<>(0);
+        for (SplitInfo info : needInstallSplitInfos) {
+            if (info.getDependencies() != null) {
+                dependenciesSplits.addAll(info.getDependencies());
             }
         }
-        return needInstallSplits;
+        if (!dependenciesSplits.isEmpty()) {
+            dependenciesSplits.removeAll(moduleNames);
+            SplitLog.i(TAG, "Add dependencies %s automatically for install splits %s!", dependenciesSplits.toString(), moduleNames.toString());
+            List<SplitInfo> dependenciesSplitInfos = manager.getSplitInfos(appContext, dependenciesSplits);
+            dependenciesSplitInfos.addAll(needInstallSplitInfos);
+            return dependenciesSplitInfos;
+        }
+        return needInstallSplitInfos;
     }
 
-    private void deferredDownloadSplits(final List<String> moduleNames,
-                                        final List<SplitInfo> needInstallSplits,
-                                        final Callback callback) {
+    private void deferredDownloadSplits(final List<SplitInfo> needInstallSplits, final Callback callback) {
         try {
-            Pair<List<DownloadRequest>, long[]> result = onPreDownloadSplits(needInstallSplits);
+            long[] result = onPreDownloadSplits(needInstallSplits);
             callback.onDeferredInstall(null);
-            long realTotalBytesNeedToDownload = result.second[1];
-            List<DownloadRequest> requests = result.first;
+            long realTotalBytesNeedToDownload = result[1];
             int sessionId = createSessionId(needInstallSplits);
             SplitLog.d(TAG, "DeferredInstall session id: " + sessionId);
-            DeferredDownloadCallback downloadCallback = new DeferredDownloadCallback(appContext, moduleNames, needInstallSplits);
+            DeferredDownloadCallback downloadCallback = new DeferredDownloadCallback(splitInstaller, needInstallSplits);
             if (realTotalBytesNeedToDownload == 0) {
                 SplitLog.d(TAG, "Splits have been downloaded, install them directly!");
                 downloadCallback.onCompleted();
             } else {
                 boolean usingMobileDataPermitted = realTotalBytesNeedToDownload < downloadSizeThresholdValue && !userDownloader.isDeferredDownloadOnlyWhenUsingWifiData();
-                userDownloader.deferredDownload(sessionId, requests, downloadCallback, usingMobileDataPermitted);
+                userDownloader.deferredDownload(sessionId, createDownloadRequests(needInstallSplits), downloadCallback, usingMobileDataPermitted);
             }
         } catch (IOException e) {
             callback.onError(bundleErrorCode(SplitInstallInternalErrorCode.BUILTIN_SPLIT_APK_COPIED_FAILED));
@@ -295,48 +347,45 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
             return;
         }
         int sessionId = createSessionId(needInstallSplits);
-        SplitLog.d(TAG, "startInstall session id: " + sessionId);
         SplitInstallInternalSessionState sessionState = sessionManager.getSessionState(sessionId);
-        boolean needUserConfirmation = false;
-        if (sessionState != null) {
-            needUserConfirmation = sessionState.status() == SplitInstallInternalSessionStatus.REQUIRES_USER_CONFIRMATION;
-        } else {
-            sessionState = new SplitInstallInternalSessionState(sessionId, moduleNames);
-        }
+        boolean needUserConfirmation = (sessionState != null && sessionState.status() == SplitInstallInternalSessionStatus.REQUIRES_USER_CONFIRMATION);
         if (!needUserConfirmation && sessionManager.isIncompatibleWithExistingSession(moduleNames)) {
             SplitLog.w(TAG, "Start install request error code: INCOMPATIBLE_WITH_EXISTING_SESSION");
             callback.onError(bundleErrorCode(SplitInstallInternalErrorCode.INCOMPATIBLE_WITH_EXISTING_SESSION));
             return;
         }
+        SplitLog.d(TAG, "startInstall session id: " + sessionId);
         try {
+            List<DownloadRequest> downloadRequests = createDownloadRequests(needInstallSplits);
+            if (sessionState == null) {
+                sessionState = new SplitInstallInternalSessionState(sessionId, moduleNames, needInstallSplits, downloadRequests);
+            }
             //1.copy built-in apk if need
             //2.check signature
             //3.create list of download request
-            Pair<List<DownloadRequest>, long[]> result = onPreDownloadSplits(needInstallSplits);
+            long[] result = onPreDownloadSplits(needInstallSplits);
             //wait util builtin splits are copied completely.
             callback.onStartInstall(sessionId, null);
             sessionManager.setSessionState(sessionId, sessionState);
             //calculate bytes to download
-            long totalBytesToDownload = result.second[0];
-            long realTotalBytesNeedToDownload = result.second[1];
+            long totalBytesToDownload = result[0];
+            long realTotalBytesNeedToDownload = result[1];
+            SplitLog.d(TAG, "totalBytesToDownload: %d, realTotalBytesNeedToDownload: %d ", totalBytesToDownload, realTotalBytesNeedToDownload);
             sessionState.setTotalBytesToDownload(totalBytesToDownload);
-            SplitLog.d(TAG, "totalBytesToDownload : " + totalBytesToDownload);
-            SplitLog.d(TAG, "realTotalBytesNeedToDownload : " + realTotalBytesNeedToDownload);
-            StartDownloadCallback downloadCallback = new StartDownloadCallback(appContext, sessionId, sessionManager, moduleNames, needInstallSplits);
-            List<DownloadRequest> requests = result.first;
-            if (isMobileAvailable(appContext)) {
-                if (realTotalBytesNeedToDownload > downloadSizeThresholdValue) {
-                    startUserConfirmationActivity(sessionState, realTotalBytesNeedToDownload, requests);
-                    return;
-                }
-            }
-            sessionManager.changeSessionState(sessionId, SplitInstallInternalSessionStatus.PENDING);
-            sessionManager.emitSessionState(sessionState);
-            if (realTotalBytesNeedToDownload == 0) {
+            StartDownloadCallback downloadCallback = new StartDownloadCallback(splitInstaller, sessionId, sessionManager, needInstallSplits);
+            if (realTotalBytesNeedToDownload <= 0) {
                 SplitLog.d(TAG, "Splits have been downloaded, install them directly!");
                 downloadCallback.onCompleted();
             } else {
-                userDownloader.startDownload(sessionId, requests, downloadCallback);
+                if (isMobileAvailable(appContext)) {
+                    if (realTotalBytesNeedToDownload > downloadSizeThresholdValue) {
+                        startUserConfirmationActivity(sessionState, realTotalBytesNeedToDownload, downloadRequests);
+                        return;
+                    }
+                }
+                sessionManager.changeSessionState(sessionId, SplitInstallInternalSessionStatus.PENDING);
+                sessionManager.emitSessionState(sessionState);
+                userDownloader.startDownload(sessionId, downloadRequests, downloadCallback);
             }
         } catch (IOException e) {
             //copy local split file failed!
@@ -352,25 +401,21 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
         intent.putExtra("sessionId", sessionState.sessionId());
         intent.putParcelableArrayListExtra("downloadRequests", (ArrayList<? extends Parcelable>) requests);
         intent.putExtra("realTotalBytesNeedToDownload", realTotalBytesNeedToDownload);
-        intent.setClass(appContext, ObtainUserConfirmationActivity.class);
+        intent.putStringArrayListExtra("moduleNames", (ArrayList<String>) sessionState.moduleNames());
+        intent.setClass(appContext, obtainUserConfirmationActivityClass);
         PendingIntent pendingIntent = PendingIntent.getActivity(appContext, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
         sessionState.setUserConfirmationIntent(pendingIntent);
         sessionManager.changeSessionState(sessionState.sessionId(), SplitInstallInternalSessionStatus.REQUIRES_USER_CONFIRMATION);
         sessionManager.emitSessionState(sessionState);
     }
 
-    private boolean isRequestValid(List<String> moduleNames) {
-        SplitInfoManager manager = SplitInfoManagerService.getInstance();
-        List<String> allSplits = new ArrayList<>();
-        Collection<SplitInfo> splitInfoList = manager.getAllSplitInfo(appContext);
-        for (SplitInfo info : splitInfoList) {
-            allSplits.add(info.getSplitName());
-        }
-        return allSplits.containsAll(moduleNames);
+    private boolean isRequestInvalid(List<String> moduleNames) {
+        return moduleNames == null || moduleNames.isEmpty() || dynamicFeatures == null || !dynamicFeatures.containsAll(moduleNames);
     }
 
     private boolean isModuleAvailable(List<String> moduleNames) {
         SplitInfoManager manager = SplitInfoManagerService.getInstance();
+        assert manager != null;
         Collection<SplitInfo> splitInfoList = manager.getAllSplitInfo(appContext);
         for (String moduleName : moduleNames) {
             for (SplitInfo info : splitInfoList) {
@@ -399,76 +444,53 @@ final class SplitInstallSupervisorImpl extends SplitInstallSupervisor {
      * If split has lib files, we need to check whether it supports current cpu arch.
      */
     private boolean isCPUArchMatched(SplitInfo splitInfo) {
-        if (splitInfo.hasLibs()) {
-            String splitAbi = splitInfo.getLibInfo().getAbi();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                String[] supportABIs = Build.SUPPORTED_ABIS;
-                for (String abi : supportABIs) {
-                    if (splitAbi.equals(abi)) {
-                        return true;
-                    }
-                }
-            } else {
-                String cpuAbi = Build.CPU_ABI;
-                if (splitAbi.equals(cpuAbi)) {
-                    return true;
-                }
-            }
-            return splitAbi.equals("armeabi");
+        try {
+            splitInfo.getPrimaryLibData(appContext);
+        } catch (IOException e) {
+            return false;
         }
         return true;
     }
 
-    private Pair<List<DownloadRequest>, long[]> onPreDownloadSplits(Collection<SplitInfo> splitInfoList) throws IOException {
-        long totalBytesToDownload = 0L;
-        long realTotalBytesNeedToDownload = 0L;
+    private List<DownloadRequest> createDownloadRequests(Collection<SplitInfo> splitInfoList) throws IOException {
         List<DownloadRequest> requests = new ArrayList<>(splitInfoList.size());
         for (SplitInfo splitInfo : splitInfoList) {
+            List<SplitInfo.ApkData> apkDataList = splitInfo.getApkDataList(appContext);
+            for (SplitInfo.ApkData apkData : apkDataList) {
+                File splitDir = SplitPathManager.require().getSplitDir(splitInfo);
+                DownloadRequest request = DownloadRequest.newBuilder()
+                        .url(apkData.getUrl())
+                        .fileDir(splitDir.getAbsolutePath())
+                        .fileName(splitInfo.getSplitName() + "-" + apkData.getAbi() + SplitConstants.DOT_APK)
+                        .fileMD5(apkData.getMd5())
+                        .moduleName(splitInfo.getSplitName())
+                        .build();
+                requests.add(request);
+            }
+        }
+        return requests;
+    }
+
+    private long[] onPreDownloadSplits(Collection<SplitInfo> splitInfoList) throws IOException {
+        long totalBytesToDownload = 0L;
+        long realTotalBytesNeedToDownload = 0L;
+        for (SplitInfo splitInfo : splitInfoList) {
             File splitDir = SplitPathManager.require().getSplitDir(splitInfo);
-            String fileName = splitInfo.getSplitName() + SplitConstants.DOT_APK;
-            File splitApk = new File(splitDir, fileName);
-            checkSplitApkMd5(splitInfo, splitDir, splitApk);
-            SplitDownloadPreprocessor processor = new SplitDownloadPreprocessor(splitDir, splitApk);
+            SplitDownloadPreprocessor processor = new SplitDownloadPreprocessor(splitDir);
+            List<SplitDownloadPreprocessor.SplitFile> splitApkList;
             try {
-                processor.load(appContext, splitInfo);
+                splitApkList = processor.load(appContext, splitInfo, verifySignature);
             } finally {
                 FileUtil.closeQuietly(processor);
             }
-            //create download request
-            DownloadRequest request = DownloadRequest.newBuilder()
-                    .url(splitInfo.getUrl())
-                    .fileDir(splitDir.getAbsolutePath())
-                    .fileName(fileName)
-                    .moduleName(splitInfo.getSplitName())
-                    .build();
-            SplitLog.d(TAG, "Split dir :" + splitDir.getAbsolutePath());
-            SplitLog.d(TAG, "Split Name :" + fileName);
-
-            requests.add(request);
             //calculate splits total download size.
-            totalBytesToDownload = totalBytesToDownload + splitInfo.getSize();
-            if (!splitApk.exists()) {
-                realTotalBytesNeedToDownload = realTotalBytesNeedToDownload + splitInfo.getSize();
-            }
-        }
-        return new Pair<>(requests, new long[]{totalBytesToDownload, realTotalBytesNeedToDownload});
-    }
-
-    private void checkSplitApkMd5(SplitInfo info, File splitDir, File splitApk) {
-        if (FileUtil.isLegalFile(splitApk)) {
-            String apkMd5 = FileUtil.getMD5(splitApk);
-            if (TextUtils.isEmpty(apkMd5)) {
-                //fallback to check apk length.
-                if (info.getSize() != splitApk.length()) {
-                    SplitLog.w(TAG, "Split %s length change", info.getSplitName());
-                    FileUtil.deleteDir(splitDir, false);
-                }
-            } else {
-                if (!info.getMd5().equals(apkMd5)) {
-                    SplitLog.w(TAG, "Split %s md5 change", info.getSplitName());
-                    FileUtil.deleteDir(splitDir, false);
+            totalBytesToDownload = totalBytesToDownload + splitInfo.getApkTotalSize(appContext);
+            for (SplitDownloadPreprocessor.SplitFile splitApk : splitApkList) {
+                if (!splitApk.exists()) {
+                    realTotalBytesNeedToDownload = realTotalBytesNeedToDownload + splitApk.realSize;
                 }
             }
         }
+        return new long[]{totalBytesToDownload, realTotalBytesNeedToDownload};
     }
 }

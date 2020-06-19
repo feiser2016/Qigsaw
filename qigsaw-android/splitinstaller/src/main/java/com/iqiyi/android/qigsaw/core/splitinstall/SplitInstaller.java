@@ -24,119 +24,93 @@
 
 package com.iqiyi.android.qigsaw.core.splitinstall;
 
-import android.content.Context;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.iqiyi.android.qigsaw.core.splitrequest.splitinfo.SplitInfo;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
 
-import dalvik.system.DexFile;
-
 abstract class SplitInstaller {
-
-    static final int WAIT_ASYNC_OAT_TIME = 10 * 1000;
-
-    static final int MAX_WAIT_COUNT = 120;
 
     /**
      * Install downloaded split apk.
      *
-     * @param splitInfo {@link SplitInfo}
+     * @param startInstall whether install splits immediately.
+     * @param splitInfo    {@link SplitInfo}
      */
-    public abstract InstallResult install(SplitInfo splitInfo) throws InstallException;
+    public abstract InstallResult install(boolean startInstall, @NonNull SplitInfo splitInfo) throws InstallException;
 
     /**
      * Check whether the signature of split apk is consistent with base app.
      *
      * @param splitApk file of split apk.
      */
-    protected abstract void validateSignature(File splitApk) throws InstallException;
+    protected abstract void verifySignature(File splitApk) throws InstallException;
+
+    /**
+     * check md5 for split apk.
+     *
+     * @param splitApk    file of split apk.
+     * @param splitApkMd5 md5 value of split apk.
+     */
+    protected abstract void checkSplitMD5(File splitApk, String splitApkMd5) throws InstallException;
 
     /**
      * Extract split apk dex files if current platform does't support multi dex.
      *
-     * @param splitInfo {@link SplitInfo}
-     * @param splitApk  file of split apk.
-     * @return a list of extracted dex files
+     * @param splitApk     file of split apk.
+     * @param codeCacheDir directory of split dex files
+     * @param splitInfo    {@link SplitInfo}
+     * @return a list of extracted dex file path.
      */
-    protected abstract List<File> extractMultiDex(SplitInfo info, File splitApk) throws InstallException;
+    protected abstract List<String> extractMultiDex(File splitApk, File codeCacheDir, @NonNull SplitInfo splitInfo) throws InstallException;
 
     /**
      * Extract split native library files.
      *
-     * @param info     {@link   SplitInfo}
      * @param splitApk file of split apk.
+     * @param libDir   directory of split so files.
+     * @param libData  {@link SplitInfo.LibData}
      */
-    protected abstract File extractLib(SplitInfo info, File splitApk) throws InstallException;
-
-    /**
-     * Optimize dex files of split.
-     *
-     * @param dexFiles     a list of dex files.
-     * @param optimizedDir a dir for store optimized dex files.
-     * @return a list of {@link DexFile}
-     */
-    protected abstract List<DexFile> optimizeDex(List<File> dexFiles, File optimizedDir) throws InstallException;
-
-    /**
-     * Check whether optimized dex files are stale.
-     */
-    protected abstract void checkOptimizedDexFiles(List<File> optFiles, List<DexFile> dexFiles) throws InstallException;
+    protected abstract void extractLib(File splitApk, File libDir, @NonNull SplitInfo.LibData libData) throws InstallException;
 
     /**
      * create a mark file to record that this split has been installed successfully.
+     *
+     * @return if {@code true} means the split is first installed, otherwise {@code false} means the split has been install.
      */
-    protected abstract void createInstalledMark(SplitInfo info) throws InstallException;
+    protected abstract boolean createInstalledMark(File markFile) throws InstallException;
 
-    protected abstract Context getApplicationContext();
+    protected abstract boolean createInstalledMarkLock(File markFile, File lockFile) throws InstallException;
 
-    class InstallResult {
+    static class InstallResult {
 
         final String splitName;
 
-        final File splitDir;
-
         final File apkFile;
 
-        final File libFile;
+        final File splitDexOptDir;
 
-        final File optDir;
+        final File splitLibDir;
 
-        final List<File> multiDexFiles;
+        final List<String> addedDexPaths;
+
+        final boolean firstInstalled;
 
         InstallResult(@NonNull String splitName,
-                      @NonNull File splitDir,
                       @NonNull File apkFile,
-                      @Nullable File optDir,
-                      @Nullable File libFile,
-                      @Nullable List<File> multiDexFiles) {
+                      @Nullable File splitDexOptDir,
+                      @Nullable File splitLibDir,
+                      @Nullable List<String> addedDexPaths,
+                      boolean firstInstalled) {
             this.splitName = splitName;
-            this.splitDir = splitDir;
             this.apkFile = apkFile;
-            this.optDir = optDir;
-            this.libFile = libFile;
-            this.multiDexFiles = multiDexFiles;
-        }
-    }
-
-    static final class DexOptimizer {
-
-        private final File dexFile;
-
-        private final File optimizedDir;
-
-        DexOptimizer(File dexFile, File optimizedDir) {
-            this.dexFile = dexFile;
-            this.optimizedDir = optimizedDir;
-        }
-
-        DexFile optimize() throws IOException {
-            String optimizedPath = SplitInstallerInternals.optimizedPathFor(this.dexFile, this.optimizedDir);
-            return DexFile.loadDex(dexFile.getAbsolutePath(), optimizedPath, 0);
+            this.splitDexOptDir = splitDexOptDir;
+            this.splitLibDir = splitLibDir;
+            this.addedDexPaths = addedDexPaths;
+            this.firstInstalled = firstInstalled;
         }
     }
 
@@ -144,7 +118,7 @@ abstract class SplitInstaller {
 
         private final int errorCode;
 
-        InstallException(int errorCode, Exception e) {
+        InstallException(int errorCode, Throwable e) {
             super((new StringBuilder(32)).append("Split Install Error: ").append(errorCode).toString(), e);
             this.errorCode = errorCode;
         }

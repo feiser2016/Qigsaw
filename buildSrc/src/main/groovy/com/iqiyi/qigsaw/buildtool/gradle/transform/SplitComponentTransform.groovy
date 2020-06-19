@@ -25,41 +25,39 @@
 package com.iqiyi.qigsaw.buildtool.gradle.transform
 
 import com.android.SdkConstants
-import com.android.build.api.transform.Format
-import com.android.build.api.transform.QualifiedContent
-import com.android.build.api.transform.Transform
-import com.android.build.api.transform.TransformException
-import com.android.build.api.transform.TransformInput
-import com.android.build.api.transform.TransformInvocation
+import com.android.build.api.transform.*
 import com.android.build.gradle.internal.pipeline.TransformManager
-import com.iqiyi.qigsaw.buildtool.gradle.internal.tool.ComponentInfo
+import com.google.common.collect.ImmutableSet
 import com.iqiyi.qigsaw.buildtool.gradle.internal.tool.ManifestReader
-import com.iqiyi.qigsaw.buildtool.gradle.internal.tool.ManifestReaderImpl
-import javassist.ClassPool
-import javassist.CtClass
-import javassist.NotFoundException
+import org.gradle.api.GradleException
 import org.gradle.api.Project
+import org.gradle.api.file.FileCollection
+import org.objectweb.asm.ClassWriter
+import org.objectweb.asm.Opcodes
 
-import java.util.jar.JarEntry
-import java.util.jar.JarFile
-import java.util.regex.Matcher
+class SplitComponentTransform extends SimpleClassCreatorTransform {
 
-import org.apache.commons.io.FileUtils
-
-class SplitComponentTransform extends Transform {
+    static final String NAME = "processSplitComponent"
 
     Project project
 
-    File manifest
+    File splitManifestParentDir
+
+    Set<String> dynamicFeatureNames
 
     SplitComponentTransform(Project project) {
         this.project = project
     }
 
-
     @Override
     String getName() {
-        return "splitComponentTransform"
+        return NAME
+    }
+
+    @Override
+    Collection<SecondaryFile> getSecondaryFiles() {
+        FileCollection collection = project.files(splitManifestParentDir)
+        return ImmutableSet.of(SecondaryFile.nonIncremental(collection))
     }
 
     @Override
@@ -77,94 +75,68 @@ class SplitComponentTransform extends Transform {
         return false
     }
 
-    void setManifest(File manifest) {
-        this.manifest = manifest
-    }
-
     @Override
     void transform(TransformInvocation transformInvocation) throws TransformException, InterruptedException, IOException {
         super.transform(transformInvocation)
         transformInvocation.getOutputProvider().deleteAll()
-        if (manifest == null) {
-            return
+        File splitManifestDir = new File(splitManifestParentDir, transformInvocation.context.variantName.uncapitalize())
+        if (!splitManifestDir.exists()) {
+            throw new GradleException("${splitManifestDir.absolutePath} is not existing!")
         }
-        long startTime = System.currentTimeMillis()
-        transformInvocation.getOutputProvider().deleteAll()
-        File jarFile = transformInvocation.getOutputProvider().getContentLocation("main", getOutputTypes(), getScopes(), Format.JAR)
-        if (!jarFile.getParentFile().exists()) {
-            jarFile.getParentFile().mkdirs()
-        }
-        if (jarFile.exists()) {
-            jarFile.delete()
-        }
-        ClassPool classPool = new ClassPool()
-        project.android.bootClasspath.each {
-            classPool.appendClassPath((String) it.absolutePath)
-        }
-        def box = toCtClasses(transformInvocation.getInputs(), classPool)
-
-        ManifestReader manifestReader = new ManifestReaderImpl(manifest)
-        List<ComponentInfo> activities = manifestReader.readActivities()
-        List<ComponentInfo> services = manifestReader.readServices()
-        List<ComponentInfo> receivers = manifestReader.readReceivers()
-        SplitComponentCodeInjector codeInjector = new SplitComponentCodeInjector(activities, services, receivers)
-        codeInjector.injectCode(box, jarFile)
-        System.out.println("SplitComponentTransform cost " + (System.currentTimeMillis() - startTime) + " ms")
-    }
-
-    static List<CtClass> toCtClasses(Collection<TransformInput> inputs, ClassPool classPool) {
-        List<String> classNames = new ArrayList<>()
-        List<CtClass> allClass = new ArrayList<>()
-        def startTime = System.currentTimeMillis()
-        inputs.each {
-            it.directoryInputs.each {
-                def dirPath = it.file.absolutePath
-                classPool.insertClassPath(it.file.absolutePath)
-                FileUtils.listFiles(it.file, null, true).each {
-                    if (it.absolutePath.endsWith(SdkConstants.DOT_CLASS)) {
-                        def className = it.absolutePath.substring(dirPath.length() + 1, it.absolutePath.length() - SdkConstants.DOT_CLASS.length()).replaceAll(Matcher.quoteReplacement(File.separator), '.')
-                        if (classNames.contains(className)) {
-                            throw new RuntimeException("You have duplicate classes with the same name : " + className + " please remove duplicate classes ")
-                        }
-                        classNames.add(className)
-                    }
-                }
+        Map<String, Set> addFieldMap = new HashMap<>()
+        dynamicFeatureNames.each { String name ->
+            File splitManifest = new File(splitManifestDir, name + SdkConstants.DOT_XML)
+            if (!splitManifest.exists()) {
+                throw new GradleException("Project ${name} manifest file ${splitManifest.absolutePath} is not found!")
             }
-
-            it.jarInputs.each {
-                classPool.insertClassPath(it.file.absolutePath)
-                def jarFile = new JarFile(it.file)
-                Enumeration<JarEntry> classes = jarFile.entries()
-                while (classes.hasMoreElements()) {
-                    JarEntry libClass = classes.nextElement()
-                    String className = libClass.getName()
-                    if (className.endsWith(SdkConstants.DOT_CLASS)) {
-                        className = className.substring(0, className.length() - SdkConstants.DOT_CLASS.length()).replaceAll('/', '.')
-                        if (classNames.contains(className)) {
-                            throw new RuntimeException("You have duplicate classes with the same name : " + className + " please remove duplicate classes ")
-                        }
-                        classNames.add(className)
-                    }
-                }
+            ManifestReader manifestReader = new ManifestReader(splitManifest)
+            Set<String> activities = manifestReader.readActivityNames()
+            Set<String> services = manifestReader.readServiceNames()
+            Set<String> receivers = manifestReader.readReceiverNames()
+            Set<String> providers = manifestReader.readProviderNames()
+            Set<String> applications = new HashSet<>()
+            String applicationName = manifestReader.readApplicationName()
+            if (applicationName != null && applicationName.length() > 0) {
+                applications.add(applicationName)
             }
+            addFieldMap.put(name + "_APPLICATION", applications)
+            addFieldMap.put(name + "_ACTIVITIES", activities)
+            addFieldMap.put(name + "_SERVICES", services)
+            addFieldMap.put(name + "_RECEIVERS", receivers)
+            addFieldMap.put(name + "_PROVIDERS", providers)
         }
-        def cost = (System.currentTimeMillis() - startTime) / 1000
-        println "read all class file cost $cost second"
-        classNames.each {
-            try {
-                allClass.add(classPool.get(it))
-            } catch (NotFoundException e) {
-                println "class not found exception class name:  $it "
 
-            }
+        def dest = prepareToCreateClass(transformInvocation)
+        createSimpleClass(dest, "com.iqiyi.android.qigsaw.core.extension.ComponentInfo", "java.lang.Object", new SimpleClassCreatorTransform.OnVisitListener() {
 
-        }
-        Collections.sort(allClass, new Comparator<CtClass>() {
             @Override
-            int compare(CtClass class1, CtClass class2) {
-                return class1.getName() <=> class2.getName()
+            void onVisit(ClassWriter cw) {
+                injectCommonInfo(dest, cw, addFieldMap)
             }
         })
-        return allClass
+    }
+
+    static void injectCommonInfo(def dest, ClassWriter cw, Map<String, Set> addFieldMap) {
+        addFieldMap.each { entry ->
+            Set value = entry.value
+            if (value.size() > 0) {
+                String name = entry.getKey()
+                if (name.endsWith("APPLICATION")) {
+                    cw.visitField(Opcodes.ACC_PUBLIC + Opcodes.ACC_FINAL + Opcodes.ACC_STATIC,
+                            name, "Ljava/lang/String;", null, value.getAt(0)).visitEnd()
+                } else if (name.endsWith("PROVIDERS")) {
+                    //create proxy provider.
+                    for (String providerName : value) {
+                        String splitName = name.split("_PROVIDERS")[0]
+                        String providerClassName = providerName + "_Decorated_" + splitName
+                        createSimpleClass(dest, providerClassName, "com.iqiyi.android.qigsaw.core.splitload.SplitContentProvider", null)
+                    }
+                } else {
+                    cw.visitField(Opcodes.ACC_PUBLIC + Opcodes.ACC_FINAL + Opcodes.ACC_STATIC,
+                            name, "Ljava/lang/String;", null,
+                            (value as String[]).join(",")).visitEnd()
+                }
+            }
+        }
     }
 }
